@@ -1,0 +1,97 @@
+**********************************************************************************************
+*                              Модель СМО G/G/K/E                                            *
+**********************************************************************************************
+*                           И с х о д н ы е   д а н н ы е                                    *
+**********************************************************************************************
+E_buf1    EQU    1; емкость накопителя (буфера) 
+E_buf2    EQU    0; емкость накопителя (буфера)
+t_a    EQU    176.87; средний интервал между поступающими заявками - равен 1/лямбда. У нас лямбда=0.4, следовательно 1/0.4=10/4=2.5                        
+t_b    EQU    513 ; средняя длительность обслуживания заявки в приборе                     
+RN_a    EQU    20; номер генератора для потока                                          
+RN_b    EQU    735; номер генератора для длительности обслуживания                      
+******************************************************************************************** 
+TU_uzel1     TABLE    M1,12,12,30;
+TU_uzel2     TABLE    M1,12,12,30;
+TU_uzel   TABLE    M1,12,12,30;
+TU_buf   QTABLE    buf1,0.1,0.1,50;
+TU_buf2   QTABLE    buf2,0.1,0.1,50; 
+uzel    STORAGE    2;
+Erl_2    VARIABLE    (Exponential(RN_erl1,0,t_a/2))+(Exponential(RN_erl2,0,t_a/2)); сл.величина по закону Эрланга 2-го порядка
+****************************************************************************
+* Служебные переменные, необходимые для процедуры GetRandomNumberFromFile  *
+****************************************************************************
+ErrorCodes   MATRIX ,2,1  ; Коды ошибок открытия/закрытиия файла (при наличии ошибок в конце моделирования будут записаны ненулевые значения)  
+FilePosition MATRIX ,1,1  ; Текущий номер строки в файле, из которой читается число (увеличивается на 1 с каждым чтением)
+*********************************************************************
+* В качестве исполняемого оставить только ОДИН оператор GENERATE !!!*
+*********************************************************************
+*GENERATE    (Exponential(RN_a,0,t_a)) ; простейший
+GENERATE    (GetRandomNumberFromFile("numbers1.txt")); заданная трасса
+*GENERATE    (GetRandomNumberFromFile("numbers2.txt")) ; аппроксимация
+    TRANSFER  .4,Met_1,Met_2
+Met_1    TEST L    Q$buf1,E_buf1,end1
+    QUEUE         buf1
+SEIZE    uzel1
+    ENTER         uzel
+DEPART       buf1
+    ADVANCE    (Exponential(RN_b,0,t_b))
+    RELEASE    uzel1
+    LEAVE    uzel
+    TABULATE     TU_uzel1
+    TABULATE   TU_uzel
+    TERMINATE 1
+Met_2    TEST L    Q$buf2,E_buf2,end2
+    QUEUE         buf2
+    SEIZE      uzel2
+    ENTER         uzel
+    DEPART       buf2
+    ADVANCE    (Exponential(RN_b,0,t_b))
+    RELEASE    uzel2
+    LEAVE     uzel
+    TABULATE     TU_uzel2
+    TABULATE   TU_uzel
+    TERMINATE 1
+
+end1    TERMINATE 1
+end2    TERMINATE 1
+**************************************************************
+* Процедура возвращает следующее прочитанное из файла число. *
+* Числа в файле расположены по одному на каждой строчке.     *
+* При выходе за границы файла чтение начинается с начала.    *
+**************************************************************
+PROCEDURE GetRandomNumberFromFile(FileName) BEGIN
+    TEMPORARY OpenError, CloseError, LineFromFile, FileId;
+    FileId = 1;
+    OpenError = open(FileId,FileName);
+    if (OpenError /= 0) then begin
+        FileId = 2;
+        OpenError = open(FileId,FileName);
+        if (OpenError /=0) then begin
+            ErrorCodes[1,1] = OpenError;
+            return "";
+        end;
+    end;
+    FilePosition[1,1] = FilePosition[1,1] + 1;
+    seek(FileId,FilePosition[1,1]);
+    LineFromFile = read(FileId);
+    if (LineFromFile = "") then begin
+        FilePosition[1,1] = 1;
+        seek(FileId,FilePosition[1,1]);
+        LineFromFile = read(FileId);
+    end;
+    CloseError = close(FileId);
+    if (CloseError /=0) then begin
+        ErrorCodes[2,1] = CloseError;
+        return "";
+    end;
+    return value(LineFromFile);
+END;
+************************************************************
+* Процедура возвращает значение псевдослучайной величины,  *
+* распределенной по гиперэкспоненциальному закону, в       *
+* соответствии с параметрами распределения qq, tt_1, tt_2. *
+************************************************************
+PROCEDURE hyper1(RN_H, qq, tt_1, tt_2) BEGIN
+    if (uniform(1,0,1) < qq) then return exponential(RN_H,0,tt_1);
+    else return exponential(RN_H,0,tt_2);        
+END;
